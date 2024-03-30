@@ -2,6 +2,9 @@ import { APIGatewayProxyEvent, APIGatewayProxyEventBase, APIGatewayProxyResult, 
 import { ProductRepository } from "/opt/nodejs/productsLayer";
 import { DynamoDB } from "aws-sdk" 
 import { Product } from "./layers/productsLayer/nodejs/productRepository";
+import { json } from "stream/consumers";
+import * as AWSXRay from "aws-xray-sdk"
+AWSXRay.captureAWS(require("aws-sdk"))
 
 const productsDdb = process.env.PRODUCTS_DDB!
 const ddbClient = new DynamoDB.DocumentClient()
@@ -21,6 +24,7 @@ export async function handler(event: APIGatewayProxyEvent, context: Context): Pr
 
         const product = JSON.parse(event.body!) as Product
         const productCreated = await productRepository.create(product)
+        console.log(JSON.stringify(productCreated))
         return {
             statusCode: 201,
             body: JSON.stringify(productCreated)
@@ -29,15 +33,33 @@ export async function handler(event: APIGatewayProxyEvent, context: Context): Pr
         const productId = event.pathParameters!.id as string
         if (method === "PUT") {
             console.log(`PUT /products/${productId}`)
-            return {
-                statusCode: 200,
-                body: `PUT /products/${productId}`
+            const product = JSON.parse(event.body!) as Product 
+            try {
+                const productUpdated = await productRepository.updateProduct(productId, product)
+                return {
+                    statusCode: 200,
+                    body: JSON.stringify(productUpdated)
+                }
+            } catch (ConditionalCheckFailedException) {
+                return {
+                    statusCode: 404,
+                    body: 'Product not found'
+                }
             }
         } else if (method === "DELETE") {
             console.log(`DELETE /products/${productId}`)
-            return {
+            try {
+               const product = await productRepository.deleteProduct(productId)
+               return {
                 statusCode: 200,
-                body: `DELETE /products/${productId}`
+                body: JSON.stringify(product)
+               } 
+            } catch (error) {
+                console.error((<Error>error).message)
+                return {
+                    statusCode: 404,
+                    body: (<Error>error).message
+                }
             }
         }
     }
